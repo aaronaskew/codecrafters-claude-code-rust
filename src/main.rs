@@ -1,7 +1,8 @@
 use async_openai::{Client, config::OpenAIConfig};
 use clap::Parser;
 use serde_json::{Value, json};
-use std::{env, process};
+use std::{collections::HashMap, env, process};
+use tokio::fs;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -60,9 +61,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // You can use print statements as follows for debugging, they'll be visible when running tests.
-    eprintln!("Logs from your program will appear here!");
+    // eprintln!("Logs from your program will appear here!");
 
-    if let Some(content) = response["choices"][0]["message"]["content"].as_str() {
+    // {
+    //   "choices": [
+    //     {
+    //       "index": 0,
+    //       "message": {
+    //         "role": "assistant",
+    //         "content": null,
+    //         "tool_calls": [
+    //           {
+    //             "id": "call_abc123",
+    //             "type": "function",
+    //             "function": {
+    //               "name": "Read",
+    //               "arguments": "{\"file_path\": \"/path/to/file.txt\"}"
+    //             }
+    //           }
+    //         ]
+    //       },
+    //       "finish_reason": "tool_calls"
+    //     }
+    //   ]
+    // }
+
+    if let Some(tool_calls) = response["choices"][0]["message"]["tool_calls"].as_array()
+        && let Some(function) = tool_calls[0]["function"].as_object()
+        && let Some(name) = function["name"].as_str()
+        && let Some(arguments) = function["arguments"].as_str()
+        && let Ok(arguments) = serde_json::from_str::<HashMap<String, String>>(arguments)
+        && name == "Read"
+        && let Some(file_path) = arguments.get("file_path")
+    {
+        let contents = fs::read_to_string(file_path).await?;
+        println!("{}", contents);
+    } else if let Some(content) = response["choices"][0]["message"]["content"].as_str() {
         println!("{}", content);
     }
 
