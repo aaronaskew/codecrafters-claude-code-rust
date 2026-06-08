@@ -33,3 +33,35 @@ Note: This section is for stages 2 and beyond.
    the first time you run it. Subsequent runs will be fast.
 3. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
    output will be streamed to your terminal.
+
+```python
+messages = [{ role: "user", content: prompt }]
+
+loop:
+    response = call_api(messages)
+    append response message to messages
+
+    if response has no tool_calls:
+        print response.content
+        exit
+
+    for each tool_call in response.tool_calls:
+        result = execute_tool(tool_call)
+        append {
+            role: "tool",
+            tool_call_id: tool_call.id,
+            content: result
+        } to messages
+```
+
+Tool Result Message
+
+```json
+
+{
+  "role": "tool",
+  "tool_call_id": "call_abc123",
+  "content": "# My Project\n\nChemical expiry period: 6 months"
+}
+
+```
