@@ -63,29 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     // eprintln!("Logs from your program will appear here!");
 
-    // {
-    //   "choices": [
-    //     {
-    //       "index": 0,
-    //       "message": {
-    //         "role": "assistant",
-    //         "content": null,
-    //         "tool_calls": [
-    //           {
-    //             "id": "call_abc123",
-    //             "type": "function",
-    //             "function": {
-    //               "name": "Read",
-    //               "arguments": "{\"file_path\": \"/path/to/file.txt\"}"
-    //             }
-    //           }
-    //         ]
-    //       },
-    //       "finish_reason": "tool_calls"
-    //     }
-    //   ]
-    // }
-
     if let Some(tool_calls) = response["choices"][0]["message"]["tool_calls"].as_array()
         && let Some(function) = tool_calls[0]["function"].as_object()
         && let Some(name) = function["name"].as_str()
