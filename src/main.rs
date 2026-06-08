@@ -1,8 +1,9 @@
 use async_openai::{Client, config::OpenAIConfig};
 use clap::Parser;
 use serde_json::{Value, json};
+use std::fs::{self, File};
+use std::io::Write;
 use std::{collections::HashMap, env, process};
-use tokio::fs;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -10,6 +11,46 @@ struct Args {
     #[arg(short = 'p', long)]
     prompt: String,
 }
+
+// enum ToolKind {
+//     Read,
+//     Write,
+// }
+
+// struct Properties {}
+
+// struct Parameters {
+//     _type: String,
+//     properties: Properties,
+//     required: Vec<String>,
+// }
+
+// struct Function {
+//     name: ToolKind,
+//     description: String,
+// }
+
+// struct Tool {
+//     _type: String,
+//     // [
+//     //                             {
+//     //                             "type": "function",
+//     //                             "function": {
+//     //                                 "name": "Read",
+//     //                                 "description": "Read and return the contents of a file",
+//     //                                 "parameters": {
+//     //                                     "type": "object",
+//     //                                     "properties": {
+//     //                                         "file_path": {
+//     //                                             "type":"string",
+//     //                                             "description": "The path to the file to read"
+//     //                                         }
+//     //                                     },
+//     //                                     "required": ["file_path"]
+//     //                                 }
+//     //                             }
+//     //                         },
+// }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,6 +77,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "content": args.prompt
     }));
 
+    let tools = json!([
+      {
+        "type": "function",
+        "function": {
+          "name": "Read",
+          "description": "Read and return the contents of a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "The path to the file to read"
+              }
+            },
+            "required": ["file_path"]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "Write",
+          "description": "Write content to a file",
+          "parameters": {
+            "type": "object",
+            "required": ["file_path", "content"],
+            "properties": {
+              "file_path": {
+                "type": "string",
+                "description": "The path of the file to write to"
+              },
+              "content": {
+                "type": "string",
+                "description": "The content to write to the file"
+              }
+            }
+          }
+        }
+      }
+    ]
+    );
+
     loop {
         eprintln!(
             "\n\n***********\nmessages(len={}):\n\n{:#?}\n***********\n\n",
@@ -48,23 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .create_byot(json!({
                 "messages": messages,
                 "model": "anthropic/claude-haiku-4.5",
-                "tools": [{
-                    "type": "function",
-                    "function": {
-                        "name": "Read",
-                        "description": "Read and return the contents of a file",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "file_path": {
-                                    "type":"string",
-                                    "description": "The path to the file to read"
-                                }
-                            },
-                            "required": ["file_path"]
-                        }
-                    }
-                }]
+                "tools": tools
             }))
             .await?;
 
@@ -96,9 +163,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 name, file_path, tool_call_id
                             );
 
-                            fs::read_to_string(file_path).await?
+                            fs::read_to_string(file_path)?
                         }
-                        _ => panic!("unknown tool"),
+                        "Write"
+                            if let Some(file_path) = arguments.get("file_path")
+                                && let Some(content) = arguments.get("content") =>
+                        {
+                            let mut file = File::options()
+                                .create(true)
+                                .truncate(true)
+                                .write(true)
+                                .open(file_path)?;
+                            file.write_all(content.as_bytes())?;
+                            content.clone()
+                        }
+
+                        unknown_tool => panic!("unknown tool: {}", unknown_tool),
                     };
 
                     let tool_call_result_message = json!({
