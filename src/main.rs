@@ -3,6 +3,7 @@ use clap::Parser;
 use serde_json::{Value, json};
 use std::fs::{self, File};
 use std::io::Write;
+use std::process::Command;
 use std::{collections::HashMap, env, process};
 
 #[derive(Parser)]
@@ -115,9 +116,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
           }
         }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "Bash",
+          "description": "Execute a shell command",
+          "parameters": {
+            "type": "object",
+            "required": ["command"],
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "The command to execute"
+              }
+            }
+          }
+        }
       }
-    ]
-    );
+    ]);
 
     loop {
         eprintln!(
@@ -177,7 +194,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             file.write_all(content.as_bytes())?;
                             content.clone()
                         }
+                        "Bash" if let Some(command) = arguments.get("command") => {
+                            let output: String = match Command::new("bash")
+                                .arg("-c")
+                                .arg(command)
+                                .arg("2>&1") // Pipe stderr into stdout as both are returned by tool
+                                .output()
+                            {
+                                Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
+                                Err(err) => format!("Error: {}", err),
+                            };
 
+                            output
+                        }
                         unknown_tool => panic!("unknown tool: {}", unknown_tool),
                     };
 
