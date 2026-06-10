@@ -1,9 +1,6 @@
 use async_openai::{Client, config::OpenAIConfig};
 use clap::Parser;
 use serde_json::{Value, json};
-use std::fs::{self, File};
-use std::io::Write;
-use std::process::Command;
 use std::{collections::HashMap, env, process};
 
 mod tools;
@@ -74,9 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let content = Tool::call(name, arguments)?;
 
                     let tool_call_result_message = json!({
-                                        "role": "tool",
-                                        "tool_call_id": tool_call_id,
-                                        "content": content,
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": content,
                     });
 
                     messages.push(tool_call_result_message);
