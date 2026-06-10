@@ -1,8 +1,15 @@
+use std::{
+    collections::HashMap,
+    fs::{self, File},
+    io::Write,
+    process::Command,
+};
+
 use serde::{Serialize, Serializer};
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
-pub enum Kind {
+pub enum JsonValueKind {
     Function,
     Object,
     String,
@@ -28,19 +35,19 @@ pub enum ToolParameterKind {
     #[serde(untagged)]
     FilePath {
         #[serde(rename = "type")]
-        kind: Kind,
+        kind: JsonValueKind,
         description: String,
     },
     #[serde(untagged)]
     Content {
         #[serde(rename = "type")]
-        kind: Kind,
+        kind: JsonValueKind,
         description: String,
     },
     #[serde(untagged)]
     Command {
         #[serde(rename = "type")]
-        kind: Kind,
+        kind: JsonValueKind,
         description: String,
     },
 }
@@ -58,16 +65,74 @@ pub struct ToolParametersProperties {
 #[derive(Serialize)]
 pub struct ToolParameters {
     #[serde(rename = "type")]
-    pub kind: Kind,
+    pub kind: JsonValueKind,
     pub properties: ToolParametersProperties,
     #[serde(serialize_with = "parameters_kind_name_only")]
     pub required: Vec<ToolParameterKind>,
 }
 
+impl ToolParameters {
+    fn new(name: ToolName) -> Self {
+        let properties = match name {
+            ToolName::Read => ToolParametersProperties {
+                file_path: Some(ToolParameterKind::FilePath {
+                    kind: JsonValueKind::String,
+                    description: "The path to the file to read".to_owned(),
+                }),
+                content: None,
+                command: None,
+            },
+            ToolName::Write => ToolParametersProperties {
+                file_path: Some(ToolParameterKind::FilePath {
+                    kind: JsonValueKind::String,
+                    description: "The path to the file to write to".to_owned(),
+                }),
+                content: Some(ToolParameterKind::Content {
+                    kind: JsonValueKind::String,
+                    description: "The content to write to the file".to_owned(),
+                }),
+                command: None,
+            },
+            ToolName::Bash => ToolParametersProperties {
+                file_path: Some(ToolParameterKind::Command {
+                    kind: JsonValueKind::String,
+                    description: "The command to execute".to_owned(),
+                }),
+                content: None,
+                command: None,
+            },
+        };
+
+        let required = {
+            let mut required = vec![];
+
+            if let Some(file_path) = properties.file_path.clone() {
+                required.push(file_path);
+            }
+
+            if let Some(content) = properties.content.clone() {
+                required.push(content);
+            }
+
+            if let Some(command) = properties.command.clone() {
+                required.push(command);
+            }
+
+            required
+        };
+
+        Self {
+            kind: JsonValueKind::Object,
+            properties,
+            required,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct Tool {
     #[serde(rename = "type")]
-    pub kind: Kind,
+    pub kind: JsonValueKind,
     pub function: ToolFunction,
 }
 
@@ -77,6 +142,55 @@ impl Tool {
             ToolName::Read => "Read and return the contents of a file".to_owned(),
             ToolName::Write => "Write content to a file".to_owned(),
             ToolName::Bash => "Execute a shell command".to_owned(),
+        }
+    }
+
+    pub fn new(name: ToolName) -> Self {
+        Self {
+            kind: JsonValueKind::Function,
+            function: ToolFunction {
+                name: name.clone(),
+                description: Tool::description(name.clone()),
+                parameters: ToolParameters::new(name),
+            },
+        }
+    }
+
+    /// Call the given tool by `name` and return the output of when the tool is run.
+    pub fn call(
+        name: &str,
+        arguments: HashMap<String, String>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        match name {
+            "Read" if let Some(file_path) = arguments.get("file_path") => {
+                Ok(fs::read_to_string(file_path)?)
+            }
+            "Write"
+                if let Some(file_path) = arguments.get("file_path")
+                    && let Some(content) = arguments.get("content") =>
+            {
+                let mut file = File::options()
+                    .create(true)
+                    .truncate(true)
+                    .write(true)
+                    .open(file_path)?;
+                file.write_all(content.as_bytes())?;
+                Ok(content.clone())
+            }
+            "Bash" if let Some(command) = arguments.get("command") => {
+                let output: String = match Command::new("bash")
+                    .arg("-c")
+                    .arg(command)
+                    .arg("2>&1") // Pipe stderr into stdout as both are returned by tool
+                    .output()
+                {
+                    Ok(output) => String::from_utf8_lossy(&output.stdout).to_string(),
+                    Err(err) => format!("Error: {}", err),
+                };
+
+                Ok(output)
+            }
+            unknown_tool => panic!("unknown tool: {}", unknown_tool),
         }
     }
 }
@@ -109,17 +223,17 @@ mod tests {
     fn read_tool() {
         let name = ToolName::Read;
         let file_path = ToolParameterKind::FilePath {
-            kind: Kind::String,
+            kind: JsonValueKind::String,
             description: "The path to the file to read".to_owned(),
         };
 
         let read_tool = Tool {
-            kind: Kind::Function,
+            kind: JsonValueKind::Function,
             function: ToolFunction {
                 name: name.clone(),
                 description: Tool::description(name),
                 parameters: ToolParameters {
-                    kind: Kind::Object,
+                    kind: JsonValueKind::Object,
                     properties: ToolParametersProperties {
                         file_path: Some(file_path.clone()),
                         content: None,
