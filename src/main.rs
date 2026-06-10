@@ -13,45 +13,9 @@ struct Args {
     prompt: String,
 }
 
-// enum ToolKind {
-//     Read,
-//     Write,
-// }
+mod tools;
 
-// struct Properties {}
-
-// struct Parameters {
-//     _type: String,
-//     properties: Properties,
-//     required: Vec<String>,
-// }
-
-// struct Function {
-//     name: ToolKind,
-//     description: String,
-// }
-
-// struct Tool {
-//     _type: String,
-//     // [
-//     //                             {
-//     //                             "type": "function",
-//     //                             "function": {
-//     //                                 "name": "Read",
-//     //                                 "description": "Read and return the contents of a file",
-//     //                                 "parameters": {
-//     //                                     "type": "object",
-//     //                                     "properties": {
-//     //                                         "file_path": {
-//     //                                             "type":"string",
-//     //                                             "description": "The path to the file to read"
-//     //                                         }
-//     //                                     },
-//     //                                     "required": ["file_path"]
-//     //                                 }
-//     //                             }
-//     //                         },
-// }
+use tools::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -78,71 +42,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "content": args.prompt
     }));
 
-    let tools = json!([
-      {
-        "type": "function",
-        "function": {
-          "name": "Read",
-          "description": "Read and return the contents of a file",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "file_path": {
-                "type": "string",
-                "description": "The path to the file to read"
-              }
+    let tools = vec![
+        Tool {
+            kind: Kind::Function,
+            function: ToolFunction {
+                name: ToolName::Read,
+                description: Tool::description(ToolName::Read),
+                parameters: ToolParameters {
+                    kind: Kind::Object,
+                    properties: ToolParametersProperties {
+                        file_path: Some(ToolParameterKind::FilePath {
+                            kind: Kind::String,
+                            description: "The path to the file to read".to_owned(),
+                        }),
+                        content: None,
+                        command: None,
+                    },
+                    required: vec![ToolParameterKind::FilePath {
+                        kind: Kind::String,
+                        description: "The path to the file to read".to_owned(),
+                    }],
+                },
             },
-            "required": ["file_path"]
-          }
-        }
-      },
-      {
-        "type": "function",
-        "function": {
-          "name": "Write",
-          "description": "Write content to a file",
-          "parameters": {
-            "type": "object",
-            "required": ["file_path", "content"],
-            "properties": {
-              "file_path": {
-                "type": "string",
-                "description": "The path of the file to write to"
-              },
-              "content": {
-                "type": "string",
-                "description": "The content to write to the file"
-              }
-            }
-          }
-        }
-      },
-      {
-        "type": "function",
-        "function": {
-          "name": "Bash",
-          "description": "Execute a shell command",
-          "parameters": {
-            "type": "object",
-            "required": ["command"],
-            "properties": {
-              "command": {
-                "type": "string",
-                "description": "The command to execute"
-              }
-            }
-          }
-        }
-      }
-    ]);
+        },
+        Tool {
+            kind: Kind::Function,
+            function: ToolFunction {
+                name: ToolName::Write,
+                description: Tool::description(ToolName::Write),
+                parameters: ToolParameters {
+                    kind: Kind::Object,
+                    properties: ToolParametersProperties {
+                        file_path: Some(ToolParameterKind::FilePath {
+                            kind: Kind::String,
+                            description: "The path of the file to write to".to_owned(),
+                        }),
+                        content: Some(ToolParameterKind::Content {
+                            kind: Kind::String,
+                            description: "The content to write to the file".to_owned(),
+                        }),
+                        command: None,
+                    },
+                    required: vec![
+                        ToolParameterKind::FilePath {
+                            kind: Kind::String,
+                            description: "The path of the file to write to".to_owned(),
+                        },
+                        ToolParameterKind::Content {
+                            kind: Kind::String,
+                            description: "The content to write to the file".to_owned(),
+                        },
+                    ],
+                },
+            },
+        },
+        Tool {
+            kind: Kind::Function,
+            function: ToolFunction {
+                name: ToolName::Bash,
+                description: Tool::description(ToolName::Bash),
+                parameters: ToolParameters {
+                    kind: Kind::Object,
+                    properties: ToolParametersProperties {
+                        file_path: None,
+                        content: None,
+                        command: Some(ToolParameterKind::Command {
+                            kind: Kind::String,
+                            description: "The command to execute".to_owned(),
+                        }),
+                    },
+                    required: vec![ToolParameterKind::Command {
+                        kind: Kind::String,
+                        description: "The command to execute".to_owned(),
+                    }],
+                },
+            },
+        },
+    ];
 
     loop {
-        eprintln!(
-            "\n\n***********\nmessages(len={}):\n\n{:#?}\n***********\n\n",
-            messages.len(),
-            messages
-        );
-
         let response: Value = client
             .chat()
             .create_byot(json!({
@@ -152,19 +130,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }))
             .await?;
 
-        // eprintln!("response: {}", response);
-
         let message = response["choices"][0]["message"].clone();
         messages.push(message);
-
-        // You can use print statements as follows for debugging, they'll be visible when running tests.
-        // eprintln!("Logs from your program will appear here!");
 
         if let Some(tool_calls) = response["choices"][0]["message"]["tool_calls"].as_array()
             && !tool_calls.is_empty()
         {
-            eprintln!("response has {} tool_calls", tool_calls.len());
-
             for tool_call in tool_calls {
                 if let Some(tool_call_id) = tool_call["id"].as_str()
                     && let Some(function) = tool_call["function"].as_object()
@@ -175,11 +146,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     let content = match name {
                         "Read" if let Some(file_path) = arguments.get("file_path") => {
-                            eprintln!(
-                                "tool_call: {}(file_path={}) tool_call_id={}",
-                                name, file_path, tool_call_id
-                            );
-
                             fs::read_to_string(file_path)?
                         }
                         "Write"
@@ -215,8 +181,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         "tool_call_id": tool_call_id,
                                         "content": content,
                     });
-
-                    eprintln!("toll_call response: {:?}", tool_call_result_message);
 
                     messages.push(tool_call_result_message);
                 }
