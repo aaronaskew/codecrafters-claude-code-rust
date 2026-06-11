@@ -190,7 +190,7 @@ impl Tool {
 
                 Ok(output)
             }
-            unknown_tool => panic!("unknown tool: {}", unknown_tool),
+            unknown_tool => panic!("unknown tool: {} arguments: {:?}", unknown_tool, arguments),
         }
     }
 }

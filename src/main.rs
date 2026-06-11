@@ -3,8 +3,9 @@ use clap::Parser;
 use serde_json::{Value, json};
 use std::{collections::HashMap, env, process};
 
-mod tools;
-use tools::*;
+use crate::tool::{Tool, ToolName};
+
+mod tool;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -16,6 +17,16 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    // Load .env if running locally
+    let _ = dotenvy::dotenv();
+
+    // Set model if running locally
+    let model = if let Ok(local_model) = env::var("LOCAL_MODEL") {
+        local_model.clone()
+    } else {
+        "anthropic/claude-haiku-4.5".to_owned()
+    };
 
     let base_url = env::var("OPENROUTER_BASE_URL")
         .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
@@ -49,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .chat()
             .create_byot(json!({
                 "messages": messages,
-                "model": "anthropic/claude-haiku-4.5",
+                "model": model,
                 "tools": tools
             }))
             .await?;
